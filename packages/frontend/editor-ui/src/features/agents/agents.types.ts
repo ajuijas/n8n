@@ -61,3 +61,35 @@ export interface AgentTaskDispatchResponse {
 	steps?: Array<{ action: string; workflowName?: string; toAgent?: string; result?: string }>;
 	message?: string;
 }
+
+// SSE streaming event types
+export interface StreamStepEvent {
+	type: 'step';
+	action: string;
+	workflowName?: string;
+	toAgent?: string;
+	external?: boolean;
+}
+
+export interface StreamObservationEvent {
+	type: 'observation';
+	result?: string;
+	error?: string;
+}
+
+export interface StreamDoneEvent {
+	type: 'done';
+	summary: string;
+}
+
+export type StreamEvent = StreamStepEvent | StreamObservationEvent | StreamDoneEvent;
+
+export interface LiveStep {
+	action: string;
+	workflowName?: string;
+	toAgent?: string;
+	external?: boolean;
+	result?: string;
+	error?: string;
+	status: 'running' | 'success' | 'failed' | 'error';
+}

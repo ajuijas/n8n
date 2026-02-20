@@ -8,6 +8,7 @@ const CARD_HEIGHT = 110;
 const props = defineProps<{
 	connections: ConnectionLine[];
 	agents: AgentNode[];
+	activeConnectionIds?: Set<string>;
 }>();
 
 const emit = defineEmits<{
@@ -31,10 +32,12 @@ const paths = computed(() =>
 			const start = getCenter(from);
 			const end = getCenter(to);
 			const dx = (end.x - start.x) * 0.4;
+			const isActive = props.activeConnectionIds?.has(conn.id) ?? false;
 
 			return {
 				id: conn.id,
 				d: `M ${start.x} ${start.y} C ${start.x + dx} ${start.y}, ${end.x - dx} ${end.y}, ${end.x} ${end.y}`,
+				active: isActive,
 			};
 		})
 		.filter(Boolean),
@@ -43,6 +46,15 @@ const paths = computed(() =>
 
 <template>
 	<svg :class="$style.overlay">
+		<defs>
+			<filter id="activeGlow">
+				<feGaussianBlur stdDeviation="3" result="blur" />
+				<feMerge>
+					<feMergeNode in="blur" />
+					<feMergeNode in="SourceGraphic" />
+				</feMerge>
+			</filter>
+		</defs>
 		<g v-for="path in paths" :key="path!.id">
 			<!-- Invisible wider stroke for easier click targeting -->
 			<path
@@ -53,8 +65,21 @@ const paths = computed(() =>
 				:class="$style.hitArea"
 				@click="emit('remove-connection', path!.id)"
 			/>
-			<!-- Visible dashed line -->
+			<!-- Active: animated flowing line -->
 			<path
+				v-if="path!.active"
+				:d="path!.d"
+				fill="none"
+				stroke="var(--color--primary)"
+				stroke-width="3"
+				stroke-dasharray="8 6"
+				filter="url(#activeGlow)"
+				:class="$style.activeLine"
+				@click="emit('remove-connection', path!.id)"
+			/>
+			<!-- Inactive: default dashed line -->
+			<path
+				v-else
 				:d="path!.d"
 				fill="none"
 				stroke="var(--color--text--tint-2)"
@@ -91,6 +116,18 @@ const paths = computed(() =>
 	.hitArea:hover + & {
 		stroke: var(--color--danger);
 		stroke-width: 3;
+	}
+}
+
+.activeLine {
+	pointer-events: stroke;
+	cursor: pointer;
+	animation: flowDash 1s linear infinite;
+}
+
+@keyframes flowDash {
+	to {
+		stroke-dashoffset: -28;
 	}
 }
 </style>

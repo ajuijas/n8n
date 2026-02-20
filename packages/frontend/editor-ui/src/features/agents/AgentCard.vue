@@ -35,7 +35,12 @@ function onPointerDown(event: PointerEvent) {
 
 <template>
 	<div
-		:class="[$style.card, { [$style.selected]: selected }]"
+		:class="[
+			$style.card,
+			{ [$style.selected]: selected },
+			agent.status === 'active' ? $style.activeGlow : '',
+			agent.status === 'busy' ? $style.busyGlow : '',
+		]"
 		:style="{
 			left: `${agent.position.x}px`,
 			top: `${agent.position.y}px`,
@@ -260,5 +265,41 @@ function onPointerDown(event: PointerEvent) {
 	color: var(--color--text--tint-2);
 	min-width: 28px;
 	text-align: right;
+}
+
+.activeGlow {
+	animation: activeGlowPulse 2s ease-in-out infinite;
+}
+
+@keyframes activeGlowPulse {
+	0%,
+	100% {
+		box-shadow:
+			0 0 8px color-mix(in srgb, var(--color--success) 30%, transparent),
+			0 1px 3px color-mix(in srgb, var(--color--text) 6%, transparent);
+	}
+	50% {
+		box-shadow:
+			0 0 20px color-mix(in srgb, var(--color--success) 50%, transparent),
+			0 0 40px color-mix(in srgb, var(--color--success) 20%, transparent);
+	}
+}
+
+.busyGlow {
+	animation: busyGlowPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes busyGlowPulse {
+	0%,
+	100% {
+		box-shadow:
+			0 0 8px color-mix(in srgb, var(--color--warning) 30%, transparent),
+			0 1px 3px color-mix(in srgb, var(--color--text) 6%, transparent);
+	}
+	50% {
+		box-shadow:
+			0 0 20px color-mix(in srgb, var(--color--warning) 50%, transparent),
+			0 0 40px color-mix(in srgb, var(--color--warning) 20%, transparent);
+	}
 }
 </style>

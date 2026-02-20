@@ -239,6 +239,7 @@ function onRemoveConnection(lineId: string) {
 				<ConnectionLines
 					:connections="agentsStore.connections"
 					:agents="agentsStore.agents"
+					:active-connection-ids="panelStore.activeConnections"
 					@remove-connection="onRemoveConnection"
 				/>
 

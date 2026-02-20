@@ -378,6 +378,20 @@ export const useAgentsStore = defineStore('agents', () => {
 		}
 	};
 
+	const setAgentStatus = (id: string, status: 'idle' | 'active' | 'busy') => {
+		const agent = agents.value.find((a) => a.id === id);
+		if (agent) {
+			agent.status = status;
+		}
+	};
+
+	const setAgentStatusByName = (firstName: string, status: 'idle' | 'active' | 'busy') => {
+		const agent = agents.value.find((a) => a.firstName.toLowerCase() === firstName.toLowerCase());
+		if (agent) {
+			agent.status = status;
+		}
+	};
+
 	return {
 		agents,
 		zones,
@@ -395,5 +409,7 @@ export const useAgentsStore = defineStore('agents', () => {
 		removeConnection,
 		createAgent,
 		updateAgent,
+		setAgentStatus,
+		setAgentStatusByName,
 	};
 });

@@ -6,6 +6,7 @@ import AgentAvatarComp from './AgentAvatar.vue';
 
 const panelStore = useAgentPanelStore();
 const taskPrompt = ref('');
+const llmApiKey = ref('');
 
 const isEditingName = ref(false);
 const editName = ref('');
@@ -55,7 +56,29 @@ function cancelEditAvatar() {
 async function onRunTask() {
 	const prompt = taskPrompt.value.trim();
 	if (!prompt) return;
-	await panelStore.dispatchTask(prompt);
+	const keys = llmApiKey.value.trim() ? { llmApiKey: llmApiKey.value.trim() } : undefined;
+	await panelStore.dispatchTask(prompt, keys);
+}
+
+function stepIcon(step: { toAgent?: string; external?: boolean; workflowName?: string }) {
+	if (step.toAgent) return 'users';
+	if (step.external) return 'globe';
+	if (step.workflowName) return 'workflow';
+	return 'play';
+}
+
+function stepStatusIcon(status: string) {
+	switch (status) {
+		case 'running':
+			return 'spinner';
+		case 'success':
+			return 'check';
+		case 'failed':
+		case 'error':
+			return 'x';
+		default:
+			return 'spinner';
+	}
 }
 </script>
 
@@ -202,6 +225,23 @@ async function onRunTask() {
 					data-testid="agent-task-input"
 					:disabled="panelStore.isSubmitting"
 				/>
+
+				<!-- Advanced: BYOK -->
+				<details :class="$style.advanced">
+					<summary :class="$style.advancedSummary">Advanced</summary>
+					<div :class="$style.advancedContent">
+						<label :class="$style.advancedLabel">LLM API Key</label>
+						<input
+							v-model="llmApiKey"
+							:class="$style.advancedInput"
+							type="password"
+							placeholder="sk-..."
+							data-testid="agent-llm-key-input"
+							autocomplete="off"
+						/>
+					</div>
+				</details>
+
 				<N8nButton
 					:label="panelStore.isSubmitting ? 'Running...' : 'Run Task'"
 					:disabled="!taskPrompt.trim() || panelStore.isSubmitting"
@@ -213,8 +253,65 @@ async function onRunTask() {
 				/>
 			</section>
 
-			<!-- Task Result -->
-			<section v-if="panelStore.taskResult" :class="$style.section">
+			<!-- Live Streaming Steps -->
+			<section
+				v-if="panelStore.streamingSteps.length || panelStore.isStreaming"
+				:class="$style.section"
+			>
+				<div :class="$style.sectionTitle">Live Progress</div>
+				<div :class="$style.streamSteps">
+					<div
+						v-for="(step, i) in panelStore.streamingSteps"
+						:key="i"
+						:class="$style.streamStep"
+						:style="{ animationDelay: `${i * 0.1}s` }"
+					>
+						<div :class="$style.streamStepHeader">
+							<N8nIcon :icon="stepIcon(step)" :class="$style.streamStepIcon" size="small" />
+							<span :class="$style.streamStepAction">{{ step.action }}</span>
+							<span v-if="step.workflowName" :class="$style.streamStepWorkflow">
+								{{ step.workflowName }}
+							</span>
+							<span v-if="step.toAgent" :class="$style.streamStepAgent">
+								&rarr; {{ step.toAgent }}
+							</span>
+							<span :class="$style.streamStepStatus">
+								<N8nIcon
+									:icon="stepStatusIcon(step.status)"
+									:spin="step.status === 'running'"
+									size="xsmall"
+									:class="{
+										[$style.statusSuccess]: step.status === 'success',
+										[$style.statusFailed]: step.status === 'failed' || step.status === 'error',
+										[$style.statusRunning]: step.status === 'running',
+									}"
+								/>
+							</span>
+						</div>
+						<div v-if="step.result" :class="$style.streamStepResult">{{ step.result }}</div>
+						<div v-if="step.error" :class="$style.streamStepError">{{ step.error }}</div>
+					</div>
+
+					<!-- Thinking indicator between steps -->
+					<div v-if="panelStore.isStreaming" :class="$style.thinking">
+						<span :class="$style.thinkingDot" />
+						<span :class="[$style.thinkingDot, $style.thinkingDot2]" />
+						<span :class="[$style.thinkingDot, $style.thinkingDot3]" />
+					</div>
+				</div>
+
+				<!-- Summary card -->
+				<div v-if="panelStore.streamingSummary" :class="$style.summaryCard">
+					<N8nIcon icon="check" :class="$style.summaryIcon" size="small" />
+					<span>{{ panelStore.streamingSummary }}</span>
+				</div>
+			</section>
+
+			<!-- Fallback: Static Task Result (non-streaming response) -->
+			<section
+				v-if="panelStore.taskResult && !panelStore.streamingSteps.length"
+				:class="$style.section"
+			>
 				<div :class="$style.sectionTitle">Result</div>
 				<div
 					:class="[
@@ -492,11 +589,204 @@ async function onRunTask() {
 	}
 }
 
+// BYOK Advanced section
+.advanced {
+	margin-top: var(--spacing--2xs);
+}
+
+.advancedSummary {
+	font-size: var(--font-size--2xs);
+	color: var(--color--text--tint-2);
+	cursor: pointer;
+	user-select: none;
+
+	&:hover {
+		color: var(--color--text--tint-1);
+	}
+}
+
+.advancedContent {
+	margin-top: var(--spacing--2xs);
+	display: flex;
+	flex-direction: column;
+	gap: var(--spacing--4xs);
+}
+
+.advancedLabel {
+	font-size: var(--font-size--2xs);
+	color: var(--color--text--tint-2);
+}
+
+.advancedInput {
+	padding: var(--spacing--4xs) var(--spacing--2xs);
+	border: var(--border);
+	border-radius: var(--radius);
+	font-family: var(--font-family);
+	font-size: var(--font-size--sm);
+	color: var(--color--text);
+	background: var(--color--background);
+
+	&:focus {
+		outline: none;
+		border-color: var(--color--primary);
+	}
+}
+
 .runBtn {
 	margin-top: var(--spacing--2xs);
 	width: 100%;
 }
 
+// Live streaming steps
+.streamSteps {
+	display: flex;
+	flex-direction: column;
+	gap: var(--spacing--4xs);
+}
+
+.streamStep {
+	padding: var(--spacing--2xs) var(--spacing--xs);
+	background: var(--color--foreground--tint-2);
+	border-radius: var(--radius);
+	animation: slideIn 0.3s ease-out both;
+}
+
+@keyframes slideIn {
+	from {
+		opacity: 0;
+		transform: translateY(8px);
+	}
+	to {
+		opacity: 1;
+		transform: translateY(0);
+	}
+}
+
+.streamStepHeader {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing--4xs);
+	font-size: var(--font-size--2xs);
+}
+
+.streamStepIcon {
+	color: var(--color--text--tint-2);
+	flex-shrink: 0;
+}
+
+.streamStepAction {
+	color: var(--color--text);
+	font-weight: var(--font-weight--bold);
+}
+
+.streamStepWorkflow {
+	color: var(--color--primary);
+}
+
+.streamStepAgent {
+	color: var(--color--secondary);
+}
+
+.streamStepStatus {
+	margin-left: auto;
+	flex-shrink: 0;
+}
+
+.statusSuccess {
+	color: var(--color--success);
+}
+
+.statusFailed {
+	color: var(--color--danger);
+}
+
+.statusRunning {
+	color: var(--color--text--tint-2);
+}
+
+.streamStepResult {
+	font-size: var(--font-size--2xs);
+	color: var(--color--text--tint-1);
+	margin-top: var(--spacing--4xs);
+	padding-left: var(--spacing--lg);
+	font-style: italic;
+}
+
+.streamStepError {
+	font-size: var(--font-size--2xs);
+	color: var(--color--danger);
+	margin-top: var(--spacing--4xs);
+	padding-left: var(--spacing--lg);
+}
+
+// Thinking dots
+.thinking {
+	display: flex;
+	align-items: center;
+	gap: var(--spacing--4xs);
+	padding: var(--spacing--2xs) var(--spacing--xs);
+}
+
+.thinkingDot {
+	width: 6px;
+	height: 6px;
+	border-radius: 50%;
+	background: var(--color--text--tint-2);
+	animation: bounce 1.4s ease-in-out infinite both;
+}
+
+.thinkingDot2 {
+	animation-delay: 0.16s;
+}
+
+.thinkingDot3 {
+	animation-delay: 0.32s;
+}
+
+@keyframes bounce {
+	0%,
+	80%,
+	100% {
+		transform: scale(0.6);
+		opacity: 0.4;
+	}
+	40% {
+		transform: scale(1);
+		opacity: 1;
+	}
+}
+
+// Summary card
+.summaryCard {
+	display: flex;
+	align-items: flex-start;
+	gap: var(--spacing--2xs);
+	margin-top: var(--spacing--2xs);
+	padding: var(--spacing--xs);
+	background: var(--color--success--tint-4);
+	border: 1px solid var(--color--success--tint-2);
+	border-radius: var(--radius);
+	font-size: var(--font-size--sm);
+	color: var(--color--text);
+	animation: fadeIn 0.4s ease-out both;
+}
+
+.summaryIcon {
+	color: var(--color--success);
+	flex-shrink: 0;
+	margin-top: 1px;
+}
+
+@keyframes fadeIn {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+// Static result fallback
 .resultBox {
 	padding: var(--spacing--xs);
 	border-radius: var(--radius);
