@@ -27,14 +27,15 @@ import { hasGlobalScope } from '@n8n/permissions';
 
 import { ActiveExecutions } from '@/active-executions';
 import { validateExternalAgentUrl } from '@/agents/validate-agent-url';
+import { CredentialsHelper } from '@/credentials-helper';
 import { CredentialsService } from '@/credentials/credentials.service';
 import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
 import { WorkflowRunner } from '@/workflow-runner';
+import * as WorkflowExecuteAdditionalData from '@/workflow-execute-additional-data';
 import { WorkflowFinderService } from '@/workflows/workflow-finder.service';
 import { WorkflowSharingService } from '@/workflows/workflow-sharing.service';
 
-const LLM_API_KEY = process.env.N8N_AGENT_LLM_API_KEY ?? '';
 const LLM_BASE_URL = process.env.N8N_AGENT_LLM_BASE_URL ?? 'https://api.anthropic.com';
 const LLM_MODEL = process.env.N8N_AGENT_LLM_MODEL ?? 'claude-sonnet-4-5-20250929';
 export const MAX_ITERATIONS = 15;
@@ -108,6 +109,7 @@ export class AgentsService {
 		private readonly workflowRepository: WorkflowRepository,
 		private readonly workflowSharingService: WorkflowSharingService,
 		private readonly credentialsService: CredentialsService,
+		private readonly credentialsHelper: CredentialsHelper,
 		private readonly projectRelationRepository: ProjectRelationRepository,
 		private readonly projectRepository: ProjectRepository,
 		private readonly workflowFinderService: WorkflowFinderService,
@@ -212,7 +214,7 @@ export class AgentsService {
 			projectIds.length > 0 ? await this.projectRepository.findByIds(projectIds) : [];
 
 		const hasAnthropicCred = credentials.some((c) => c.type === 'anthropicApi');
-		const llmConfigured = hasAnthropicCred || !!LLM_API_KEY;
+		const llmConfigured = hasAnthropicCred;
 
 		return {
 			agentId: agentUser.id,
@@ -307,25 +309,30 @@ export class AgentsService {
 	private async resolveLlmConfig(agentUser: User): Promise<LlmConfig> {
 		const credentials = await this.credentialsService.getMany(agentUser, {
 			includeGlobal: false,
-			includeData: true,
 		});
 
 		const anthropicCred = credentials.find((c) => c.type === 'anthropicApi');
 
 		if (anthropicCred) {
-			const data = anthropicCred.data as { apiKey?: string; url?: string } | undefined;
+			const additionalData = await WorkflowExecuteAdditionalData.getBase({});
+			const data = await this.credentialsHelper.getDecrypted(
+				additionalData,
+				{ id: anthropicCred.id, name: anthropicCred.name },
+				'anthropicApi',
+				'internal',
+			);
 
-			if (data?.apiKey) {
+			if (data.apiKey) {
 				return {
-					apiKey: data.apiKey,
-					baseUrl: data.url || LLM_BASE_URL,
+					apiKey: data.apiKey as string,
+					baseUrl: (data.url as string) || LLM_BASE_URL,
 					model: LLM_MODEL,
 				};
 			}
 		}
 
 		return {
-			apiKey: LLM_API_KEY,
+			apiKey: '',
 			baseUrl: LLM_BASE_URL,
 			model: LLM_MODEL,
 		};
@@ -387,8 +394,7 @@ export class AgentsService {
 		if (!llmConfig.apiKey) {
 			return {
 				status: 'error',
-				message:
-					'No LLM API key available. Share an Anthropic credential with this agent or set N8N_AGENT_LLM_API_KEY.',
+				message: 'No LLM API key available. Share an Anthropic credential with this agent.',
 				steps: [],
 			};
 		}
@@ -578,11 +584,12 @@ export class AgentsService {
 								callChain,
 							});
 							const stepResult = result.status === 'completed' ? 'success' : 'failed';
+							const responseText = result.summary ?? result.message ?? 'No summary';
 							this.recordObservation(steps, messages, onStep, {
 								action: 'send_message',
 								result: stepResult,
-								message: `Agent "${targetName}" responded: ${result.summary ?? 'No summary'}`,
-								extra: { toAgent: targetName, summary: result.summary },
+								message: `Agent "${targetName}" responded: ${responseText}`,
+								extra: { toAgent: targetName, summary: responseText },
 							});
 						} catch (error) {
 							const errorMsg = error instanceof Error ? error.message : String(error);

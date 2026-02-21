@@ -4,14 +4,14 @@ import { nanoid } from 'nanoid';
 
 import { test as base, expect as baseExpect } from '../../../fixtures/base';
 import type { AgentResponse } from '../../../services/agent-api-helper';
+import type { CredentialResponse } from '../../../services/credential-api-helper';
 import type { ApiKey } from '../../../services/public-api-helper';
-
-const N8N_AGENT_LLM_API_KEY = process.env.N8N_AGENT_LLM_API_KEY ?? '';
 
 /**
  * Resolve test credentials from TEST_CREDENTIAL_<KEY> env vars.
  * e.g. TEST_CREDENTIAL_CURRENTS=xxx → { currents: 'xxx' }
  *      TEST_CREDENTIAL_LINEAR=yyy   → { linear: 'yyy' }
+ *      TEST_CREDENTIAL_ANTHROPIC=sk-ant-... → { anthropic: 'sk-ant-...' }
  */
 function resolveTestCredentials(): Record<string, string> {
 	const prefix = 'TEST_CREDENTIAL_';
@@ -27,19 +27,15 @@ function resolveTestCredentials(): Record<string, string> {
 }
 
 type AgentFixtures = {
-	agentLlmApiKey: string;
 	testCredentials: Record<string, string>;
 	agent: AgentResponse;
 	agentProject: Project;
 	ownerApiKey: ApiKey;
 	externalRequest: Awaited<ReturnType<typeof request.newContext>>;
+	anthropicCredential: CredentialResponse | null;
 };
 
 export const test = base.extend<AgentFixtures>({
-	agentLlmApiKey: async ({}, use) => {
-		await use(N8N_AGENT_LLM_API_KEY);
-	},
-
 	testCredentials: async ({}, use) => {
 		await use(resolveTestCredentials());
 	},
@@ -79,6 +75,27 @@ export const test = base.extend<AgentFixtures>({
 		await use(context);
 
 		await context.dispose();
+	},
+
+	/**
+	 * Creates an Anthropic credential in the agentProject so the agent can use it for LLM calls.
+	 * Requires TEST_CREDENTIAL_ANTHROPIC env var. Returns null if not available.
+	 */
+	anthropicCredential: async ({ api, agentProject, testCredentials }, use) => {
+		const anthropicKey = testCredentials.anthropic;
+		if (!anthropicKey) {
+			await use(null);
+			return;
+		}
+
+		const credential = await api.credentials.createCredential({
+			name: `Anthropic LLM ${nanoid(8)}`,
+			type: 'anthropicApi',
+			data: { apiKey: anthropicKey },
+			projectId: agentProject.id,
+		});
+
+		await use(credential);
 	},
 });
 

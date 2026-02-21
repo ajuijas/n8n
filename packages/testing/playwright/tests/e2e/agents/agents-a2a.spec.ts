@@ -140,12 +140,12 @@ test.describe('Agent Task Streaming', () => {
 	test('should stream task steps as SSE events', async ({
 		agent,
 		agentProject,
-		agentLlmApiKey,
+		anthropicCredential,
 		api,
 		backendUrl,
 		ownerApiKey,
 	}) => {
-		test.skip(!agentLlmApiKey, 'N8N_AGENT_LLM_API_KEY not set — skipping LLM tests');
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
 		test.setTimeout(180_000);
 
 		await api.projects.addUserToProject(agentProject.id, agent.id, 'project:editor');
@@ -248,11 +248,11 @@ test.describe('Agent Task Streaming', () => {
 	test('should fall back to JSON response without Accept header', async ({
 		agent,
 		agentProject,
-		agentLlmApiKey,
+		anthropicCredential,
 		api,
 		externalRequest,
 	}) => {
-		test.skip(!agentLlmApiKey, 'N8N_AGENT_LLM_API_KEY not set — skipping LLM tests');
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
 		test.setTimeout(180_000);
 
 		await api.projects.addUserToProject(agentProject.id, agent.id, 'project:editor');
@@ -324,11 +324,11 @@ test.describe('Agent Task Execution', () => {
 	test('should execute a task via API key and get structured response', async ({
 		agent,
 		agentProject,
-		agentLlmApiKey,
+		anthropicCredential,
 		api,
 		externalRequest,
 	}) => {
-		test.skip(!agentLlmApiKey, 'N8N_AGENT_LLM_API_KEY not set — skipping LLM tests');
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
 		test.setTimeout(180_000); // LLM + workflow execution can be slow
 
 		// Add agent to project so it can see the workflow
@@ -412,13 +412,11 @@ test.describe('Agent Task Execution', () => {
 		expect(executionStep!.workflowName).toBe(workflowName);
 	});
 
-	test('should return error when LLM key is not configured', async ({
+	test('should return error when no Anthropic credential is shared', async ({
 		agent,
-		agentLlmApiKey,
 		externalRequest,
 	}) => {
-		test.skip(!!agentLlmApiKey, 'N8N_AGENT_LLM_API_KEY is set — this test only runs without it');
-
+		// Agent has no Anthropic credential shared — should get a clear error
 		const response = await externalRequest.post(`/rest/agents/${agent.id}/task`, {
 			data: { prompt: 'Hello' },
 		});
@@ -428,7 +426,7 @@ test.describe('Agent Task Execution', () => {
 		const task = await unwrap<{ status: string; message: string }>(response);
 
 		expect(task.status).toBe('error');
-		expect(task.message).toContain('No LLM API key available.');
+		expect(task.message).toContain('No LLM API key available');
 	});
 });
 
@@ -437,13 +435,13 @@ test.describe.skip('Agent Cross-Instance Delegation', () => {
 	test('should delegate to external agent via HTTP', async ({
 		agent: agentA,
 		agentProject,
-		agentLlmApiKey,
+		anthropicCredential,
 		api,
 		backendUrl,
 		ownerApiKey,
 		externalRequest,
 	}) => {
-		test.skip(!agentLlmApiKey, 'N8N_AGENT_LLM_API_KEY not set — skipping LLM tests');
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
 		test.setTimeout(180_000);
 
 		// Create Agent B with a workflow
@@ -544,12 +542,12 @@ test.describe.skip('Agent Cross-Instance Delegation', () => {
 	test('should stream SSE events with external: true for cross-instance delegation', async ({
 		agent: agentA,
 		agentProject,
-		agentLlmApiKey,
+		anthropicCredential,
 		api,
 		backendUrl,
 		ownerApiKey,
 	}) => {
-		test.skip(!agentLlmApiKey, 'N8N_AGENT_LLM_API_KEY not set — skipping LLM tests');
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
 		test.setTimeout(180_000);
 
 		const agentB = await api.agents.createAgent({
@@ -660,6 +658,210 @@ test.describe.skip('Agent Cross-Instance Delegation', () => {
 	});
 });
 
+test.describe('Agent Task via UI', () => {
+	/**
+	 * Opens the agent panel by dispatching pointer events directly to the card element.
+	 * Canvas uses absolute positioning — force-clicking at coordinates can hit overlapping cards.
+	 * dispatchEvent targets the DOM element directly, bypassing coordinate-based hit testing.
+	 */
+	async function openAgentPanel(page: import('@playwright/test').Page, agentName: string) {
+		const card = page.getByRole('button', { name: `Agent ${agentName}` });
+		await expect(card).toBeVisible();
+		await card.dispatchEvent('pointerdown', { bubbles: true });
+		await card.dispatchEvent('pointerup', { bubbles: true });
+
+		const panel = page.getByRole('complementary', { name: 'Agent details' });
+		await expect(panel).toBeVisible();
+		await expect(panel.getByRole('heading', { name: agentName })).toBeVisible();
+		return panel;
+	}
+
+	test('should dispatch task from agent panel and see streaming result', async ({
+		n8n,
+		agent,
+		agentProject,
+		anthropicCredential,
+		api,
+	}) => {
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
+		test.setTimeout(180_000);
+
+		// Setup: agent must be in the project that has the credential + workflow
+		await api.projects.addUserToProject(agentProject.id, agent.id, 'project:editor');
+
+		const workflowName = `UI E2E Workflow ${nanoid(8)}`;
+		const workflow = await api.workflows.createWorkflow({
+			name: workflowName,
+			nodes: [
+				{
+					id: nanoid(),
+					name: 'When clicking "Test workflow"',
+					type: 'n8n-nodes-base.manualTrigger',
+					typeVersion: 1,
+					position: [250, 300],
+					parameters: {},
+				},
+				{
+					id: nanoid(),
+					name: 'Set',
+					type: 'n8n-nodes-base.set',
+					typeVersion: 3.4,
+					position: [450, 300],
+					parameters: {
+						assignments: {
+							assignments: [
+								{
+									id: nanoid(),
+									name: 'result',
+									value: 'UI test result',
+									type: 'string',
+								},
+							],
+						},
+					},
+				},
+			],
+			connections: {
+				'When clicking "Test workflow"': {
+					main: [[{ node: 'Set', type: 'main', index: 0 }]],
+				},
+			},
+		});
+
+		await api.workflows.transfer(workflow.id, agentProject.id);
+
+		// Navigate to agents page and open the agent panel
+		await n8n.navigate.toAgents();
+		const panel = await openAgentPanel(n8n.page, agent.firstName);
+
+		// Verify agent has access to the workflow and credential
+		await expect(panel.getByText(workflowName)).toBeVisible();
+		await expect(panel.getByText('anthropicApi')).toBeVisible();
+
+		// Type a prompt and run task
+		const taskInput = panel.getByRole('textbox');
+		await taskInput.fill(`Execute the workflow named "${workflowName}" and report the result.`);
+
+		const runButton = panel.getByRole('button', { name: 'Run Task' });
+		await expect(runButton).toBeEnabled();
+		await runButton.click();
+
+		// Wait for streaming summary to appear (proves SSE round-trip through UI)
+		const summaryCard = panel.locator('[class*="summaryCard"]');
+		await expect(summaryCard).toBeVisible({ timeout: 60_000 });
+		await expect(summaryCard).toContainText(/.+/);
+	});
+
+	test('should show LLM warning and disabled button when agent has no credential', async ({
+		n8n,
+		agent,
+		api,
+	}) => {
+		// Put agent in a project so it has a stable canvas position, but no credential
+		await api.enableProjectFeatures();
+		await api.setMaxTeamProjectsQuota(-1);
+		const project = await api.projects.createProject(`No LLM Project ${nanoid(8)}`);
+		await api.projects.addUserToProject(project.id, agent.id, 'project:editor');
+
+		await n8n.navigate.toAgents();
+		const panel = await openAgentPanel(n8n.page, agent.firstName);
+
+		// The LLM warning callout should be visible
+		await expect(panel.getByText('No LLM credential found')).toBeVisible();
+
+		// Run button should be disabled when no LLM is configured
+		const runButton = panel.getByRole('button', { name: 'Run Task' });
+		await expect(runButton).toBeDisabled();
+	});
+
+	test('should handle delegation to agent without LLM credentials gracefully', async ({
+		n8n,
+		agent,
+		agentProject,
+		anthropicCredential,
+		api,
+	}) => {
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
+		test.setTimeout(180_000);
+
+		// Setup: QA agent with credentials in a project
+		await api.projects.addUserToProject(agentProject.id, agent.id, 'project:editor');
+
+		// Create a second agent WITHOUT credentials (no project, no LLM key)
+		const noLlmAgent = await api.agents.createAgent({
+			firstName: `NoLLM-${nanoid(8)}`,
+			description: 'Agent with no LLM credential',
+			agentAccessLevel: 'external',
+		});
+
+		// Navigate to agents and dispatch from the QA agent
+		await n8n.navigate.toAgents();
+		const panel = await openAgentPanel(n8n.page, agent.firstName);
+		await expect(panel.getByText('anthropicApi')).toBeVisible();
+
+		// Ask the agent to delegate to the no-LLM agent
+		const taskInput = panel.getByRole('textbox');
+		await taskInput.fill(
+			`Send a message to agent "${noLlmAgent.firstName}" asking it to say hello. Report back what happened.`,
+		);
+
+		const runButton = panel.getByRole('button', { name: 'Run Task' });
+		await runButton.click();
+
+		// Should complete with a summary (not hang silently)
+		const summaryCard = panel.locator('[class*="summaryCard"]');
+		await expect(summaryCard).toBeVisible({ timeout: 120_000 });
+		await expect(summaryCard).toContainText(/.+/);
+
+		// The step list should show a delegation step to the no-LLM agent
+		await expect(panel.getByText(`→ ${noLlmAgent.firstName}`)).toBeVisible();
+	});
+
+	test('should delegate across agents when both have valid credentials', async ({
+		n8n,
+		agent,
+		agentProject,
+		anthropicCredential,
+		api,
+	}) => {
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
+		test.setTimeout(180_000);
+
+		// Setup: QA agent in the project with credential
+		await api.projects.addUserToProject(agentProject.id, agent.id, 'project:editor');
+
+		// Create a second agent (Communications) also with credential access
+		const commsAgent = await api.agents.createAgent({
+			firstName: `Comms-${nanoid(8)}`,
+			description: 'Communications agent for cross-delegation test',
+			agentAccessLevel: 'external',
+		});
+		await api.projects.addUserToProject(agentProject.id, commsAgent.id, 'project:editor');
+
+		// Navigate to agents and dispatch from the QA agent
+		await n8n.navigate.toAgents();
+		const panel = await openAgentPanel(n8n.page, agent.firstName);
+		await expect(panel.getByText('anthropicApi')).toBeVisible();
+
+		// Ask the QA agent to delegate to Communications
+		const taskInput = panel.getByRole('textbox');
+		await taskInput.fill(
+			`Send a message to agent "${commsAgent.firstName}" and ask it to respond with "Cross-delegation successful". Report its response.`,
+		);
+
+		const runButton = panel.getByRole('button', { name: 'Run Task' });
+		await runButton.click();
+
+		// Should complete with summary
+		const summaryCard = panel.locator('[class*="summaryCard"]');
+		await expect(summaryCard).toBeVisible({ timeout: 120_000 });
+		await expect(summaryCard).toContainText(/.+/);
+
+		// The step list should show delegation to the Comms agent
+		await expect(panel.getByText(`→ ${commsAgent.firstName}`)).toBeVisible();
+	});
+});
+
 test.describe('Public API Endpoints (/api/v1/)', () => {
 	test('should return A2A card via GET /api/v1/agents/:id/card', async ({
 		agent,
@@ -693,11 +895,11 @@ test.describe('Public API Endpoints (/api/v1/)', () => {
 	test('should execute task via POST /api/v1/agents/:id/task and get JSON result', async ({
 		agent,
 		agentProject,
-		agentLlmApiKey,
+		anthropicCredential,
 		api,
 		ownerApiKey,
 	}) => {
-		test.skip(!agentLlmApiKey, 'N8N_AGENT_LLM_API_KEY not set — skipping LLM tests');
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
 		test.setTimeout(180_000);
 
 		await api.projects.addUserToProject(agentProject.id, agent.id, 'project:editor');
@@ -757,12 +959,12 @@ test.describe('Public API Endpoints (/api/v1/)', () => {
 	test('should stream SSE via POST /api/v1/agents/:id/task with Accept header', async ({
 		agent,
 		agentProject,
-		agentLlmApiKey,
+		anthropicCredential,
 		api,
 		backendUrl,
 		ownerApiKey,
 	}) => {
-		test.skip(!agentLlmApiKey, 'N8N_AGENT_LLM_API_KEY not set — skipping LLM tests');
+		test.skip(!anthropicCredential, 'TEST_CREDENTIAL_ANTHROPIC not set — skipping LLM tests');
 		test.setTimeout(180_000);
 
 		await api.projects.addUserToProject(agentProject.id, agent.id, 'project:editor');

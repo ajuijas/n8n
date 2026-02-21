@@ -2,6 +2,7 @@ import { Container } from '@n8n/di';
 import type express from 'express';
 
 import type { AuthenticatedRequest } from '@n8n/db';
+import { sendErrorResponse } from '@/response-helper';
 import type { ExternalAgentConfig } from '@/services/agents.service';
 import { AgentsService, MAX_ITERATIONS, sseWrite } from '@/services/agents.service';
 
@@ -26,7 +27,12 @@ export = {
 			const agentsService = Container.get(AgentsService);
 			const agentId = req.params.id;
 
-			await agentsService.enforceAccessLevel(agentId, req.user);
+			try {
+				await agentsService.enforceAccessLevel(agentId, req.user);
+			} catch (error) {
+				sendErrorResponse(res, error instanceof Error ? error : new Error(String(error)));
+				return;
+			}
 
 			const { prompt, externalAgents } = req.body as {
 				prompt: string;
@@ -51,14 +57,20 @@ export = {
 				Connection: 'keep-alive',
 			});
 
-			const result = await agentsService.executeAgentTask(
-				agentId,
-				prompt,
-				{ remaining: MAX_ITERATIONS },
-				{ onStep: (event) => sseWrite(res, event), externalAgents, callChain },
-			);
+			try {
+				const result = await agentsService.executeAgentTask(
+					agentId,
+					prompt,
+					{ remaining: MAX_ITERATIONS },
+					{ onStep: (event) => sseWrite(res, event), externalAgents, callChain },
+				);
 
-			sseWrite(res, { type: 'done', status: result.status, summary: result.summary });
+				sseWrite(res, { type: 'done', status: result.status, summary: result.summary });
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				sseWrite(res, { type: 'done', status: 'error', summary: message });
+			}
+
 			res.end();
 			return res;
 		},

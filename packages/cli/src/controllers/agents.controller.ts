@@ -12,6 +12,7 @@ import {
 } from '@n8n/decorators';
 import type { Request, Response } from 'express';
 
+import { sendErrorResponse } from '@/response-helper';
 import type { ExternalAgentConfig } from '@/services/agents.service';
 import { AgentsService, MAX_ITERATIONS, sseWrite } from '@/services/agents.service';
 
@@ -78,7 +79,13 @@ export class AgentsController {
 		@Param('agentId') agentId: string,
 		@Body payload: DispatchTaskDto,
 	) {
-		await this.agentsService.enforceAccessLevel(agentId, req.user);
+		try {
+			await this.agentsService.enforceAccessLevel(agentId, req.user);
+		} catch (error) {
+			// usesTemplates bypasses the `send()` error handler, so we handle errors manually
+			sendErrorResponse(res, error instanceof Error ? error : new Error(String(error)));
+			return undefined;
+		}
 
 		const { prompt, externalAgents } = payload;
 		const wantsStream = req.headers.accept?.includes('text/event-stream');
@@ -101,18 +108,24 @@ export class AgentsController {
 			Connection: 'keep-alive',
 		});
 
-		const result = await this.agentsService.executeAgentTask(
-			agentId,
-			prompt,
-			{ remaining: MAX_ITERATIONS },
-			{
-				onStep: (event) => sseWrite(res, event),
-				externalAgents: externalAgents as ExternalAgentConfig[] | undefined,
-				callChain,
-			},
-		);
+		try {
+			const result = await this.agentsService.executeAgentTask(
+				agentId,
+				prompt,
+				{ remaining: MAX_ITERATIONS },
+				{
+					onStep: (event) => sseWrite(res, event),
+					externalAgents: externalAgents as ExternalAgentConfig[] | undefined,
+					callChain,
+				},
+			);
 
-		sseWrite(res, { type: 'done', status: result.status, summary: result.summary });
+			sseWrite(res, { type: 'done', status: result.status, summary: result.summary });
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			sseWrite(res, { type: 'done', status: 'error', summary: message });
+		}
+
 		res.end();
 		return undefined;
 	}
