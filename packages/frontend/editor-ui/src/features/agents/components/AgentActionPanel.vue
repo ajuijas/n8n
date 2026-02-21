@@ -268,11 +268,23 @@ function stepStatusIcon(status: string) {
 
 			<!-- Live Streaming Steps -->
 			<section
-				v-if="panelStore.streamingSteps.length || panelStore.isStreaming"
+				v-if="
+					panelStore.streamingSteps.length || panelStore.isStreaming || panelStore.streamingSummary
+				"
 				:class="$style.section"
 			>
-				<N8nText tag="h4" size="small" bold :class="$style.sectionTitle">Live Progress</N8nText>
-				<div :class="$style.streamSteps">
+				<N8nText
+					v-if="panelStore.streamingSteps.length || panelStore.isStreaming"
+					tag="h4"
+					size="small"
+					bold
+					:class="$style.sectionTitle"
+					>Live Progress</N8nText
+				>
+				<div
+					v-if="panelStore.streamingSteps.length || panelStore.isStreaming"
+					:class="$style.streamSteps"
+				>
 					<div
 						v-for="(step, i) in panelStore.streamingSteps"
 						:key="i"

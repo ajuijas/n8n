@@ -65,7 +65,11 @@ export = {
 					{ onStep: (event) => sseWrite(res, event), externalAgents, callChain },
 				);
 
-				sseWrite(res, { type: 'done', status: result.status, summary: result.summary });
+				sseWrite(res, {
+					type: 'done',
+					status: result.status,
+					summary: result.summary ?? result.message,
+				});
 			} catch (error) {
 				const message = error instanceof Error ? error.message : String(error);
 				sseWrite(res, { type: 'done', status: 'error', summary: message });
