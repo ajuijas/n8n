@@ -98,8 +98,13 @@ export interface AgentTaskResult {
 	message?: string;
 }
 
-export function sseWrite(res: { write: (chunk: string) => void }, event: Record<string, unknown>) {
+export function sseWrite(
+	res: { write: (chunk: string) => void; flush?: () => void },
+	event: Record<string, unknown>,
+) {
 	res.write(`data: ${JSON.stringify(event)}\n\n`);
+	// Flush immediately so compression middleware doesn't buffer SSE events
+	res.flush?.();
 }
 
 @Service()
@@ -476,7 +481,17 @@ export class AgentsService {
 			try {
 				parsed = JSON.parse(cleaned);
 			} catch {
-				return { status: 'completed', summary: llmResponse, steps };
+				// LLM sometimes includes preamble text before/after JSON — extract it
+				const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+				if (jsonMatch) {
+					try {
+						parsed = JSON.parse(jsonMatch[0]);
+					} catch {
+						return { status: 'completed', summary: llmResponse, steps };
+					}
+				} else {
+					return { status: 'completed', summary: llmResponse, steps };
+				}
 			}
 
 			if (parsed.action === 'complete') {

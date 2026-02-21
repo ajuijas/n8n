@@ -10,7 +10,7 @@ import type {
 	AgentDto,
 	LlmConfig,
 } from '@/services/agents.service';
-import { buildSystemPrompt, callExternalAgent, callLlm } from '@/services/agents.service';
+import { buildSystemPrompt, callExternalAgent, callLlm, sseWrite } from '@/services/agents.service';
 
 // Mock SSRF validation — unit tests don't resolve DNS
 jest.mock('@/agents/validate-agent-url', () => ({
@@ -258,6 +258,29 @@ describe('AgentsController', () => {
 			});
 			expect(res.end).toHaveBeenCalled();
 		});
+
+		it('should flush after each SSE write to prevent compression buffering', async () => {
+			agentsService.enforceAccessLevel.mockResolvedValue(undefined);
+
+			// Capture the onStep callback and simulate step events
+			agentsService.executeAgentTask.mockImplementation(async (_id, _prompt, _budget, opts) => {
+				opts?.onStep?.({ type: 'step', action: 'execute_workflow', workflowName: 'Report' });
+				opts?.onStep?.({ type: 'observation', result: 'success' });
+				return { status: 'completed', summary: 'Done', steps: [] };
+			});
+
+			const req = makeAuthReq('text/event-stream');
+			const res = mock<Response>();
+
+			await controller.dispatchTask(req, res, 'agent-1', {
+				prompt: 'Test',
+			} as never);
+
+			// 2 onStep writes + 1 final "done" write = 3 total
+			expect(res.write).toHaveBeenCalledTimes(3);
+			// flush must be called after EVERY write (regression: compression middleware buffers SSE)
+			expect(res.flush).toHaveBeenCalledTimes(3);
+		});
 	});
 });
 
@@ -435,6 +458,34 @@ describe('callExternalAgent', () => {
 		await expect(callExternalAgent(config, 'Hello')).rejects.toThrow(
 			'External agent returned 500: Internal Server Error',
 		);
+	});
+});
+
+describe('sseWrite', () => {
+	it('should write SSE-formatted data', () => {
+		const res = { write: jest.fn(), flush: jest.fn() };
+		sseWrite(res, { type: 'step', action: 'execute_workflow' });
+
+		expect(res.write).toHaveBeenCalledWith('data: {"type":"step","action":"execute_workflow"}\n\n');
+	});
+
+	it('should flush after every write to prevent compression buffering', () => {
+		const res = { write: jest.fn(), flush: jest.fn() };
+
+		sseWrite(res, { type: 'step', action: 'execute_workflow' });
+		expect(res.flush).toHaveBeenCalledTimes(1);
+
+		sseWrite(res, { type: 'observation', result: 'success' });
+		expect(res.flush).toHaveBeenCalledTimes(2);
+
+		sseWrite(res, { type: 'done', summary: 'All done' });
+		expect(res.flush).toHaveBeenCalledTimes(3);
+	});
+
+	it('should not throw when flush is not available', () => {
+		const res = { write: jest.fn() };
+		expect(() => sseWrite(res, { type: 'done', summary: 'OK' })).not.toThrow();
+		expect(res.write).toHaveBeenCalled();
 	});
 });
 

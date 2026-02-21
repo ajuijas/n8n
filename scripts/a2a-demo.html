@@ -529,7 +529,7 @@ function runTask() {
 
   abortController = new AbortController();
 
-  fetch(`${backendUrl}/rest/agents/${agentId}/task`, {
+  fetch(`${backendUrl}/api/v1/agents/${agentId}/task`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

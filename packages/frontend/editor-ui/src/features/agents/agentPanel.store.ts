@@ -143,17 +143,30 @@ export const useAgentPanelStore = defineStore('agentPanel', () => {
 
 	function handleObservationEvent(event: StreamEvent & { type: 'observation' }) {
 		const steps = [...streamingSteps.value];
-		const lastStep = steps[steps.length - 1];
-		if (lastStep) {
-			lastStep.result = event.result;
-			lastStep.error = event.error;
-			lastStep.status = event.error ? 'failed' : 'success';
+
+		// Find the matching step: last running step with the same toAgent context,
+		// falling back to the last step. This handles interleaved steps from nested
+		// delegation where the last step may belong to a different agent.
+		let targetStep = steps[steps.length - 1];
+		if (event.toAgent) {
+			const delegationStep = [...steps]
+				.reverse()
+				.find((s) => s.toAgent === event.toAgent && s.status === 'running');
+			if (delegationStep) targetStep = delegationStep;
+		}
+
+		if (targetStep) {
+			targetStep.result = event.result;
+			targetStep.error = event.error;
+			targetStep.status = event.error ? 'failed' : 'success';
 		}
 		streamingSteps.value = steps;
 
-		// Clear busy agent + connection
-		if (lastStep?.toAgent && panelAgentId.value) {
-			const targetId = findAgentIdByName(lastStep.toAgent);
+		// Clear busy agent + connection using the event's toAgent (not the step's)
+		// because nested delegation interleaves steps from multiple agents
+		const agentName = event.toAgent ?? targetStep?.toAgent;
+		if (agentName && panelAgentId.value) {
+			const targetId = findAgentIdByName(agentName);
 			if (targetId) {
 				agentsStore.setAgentStatus(targetId, 'idle');
 				const connId = computeConnectionId(panelAgentId.value, targetId);
@@ -170,9 +183,10 @@ export const useAgentPanelStore = defineStore('agentPanel', () => {
 		isSubmitting.value = false;
 		activeConnections.value = new Set();
 
-		// Reset dispatching agent
-		if (panelAgentId.value) {
-			agentsStore.setAgentStatus(panelAgentId.value, 'idle');
+		// Reset all agent statuses (not just the dispatching agent)
+		// Observation events may not fire for every delegation (error paths, races)
+		for (const agent of agentsStore.agents) {
+			agentsStore.setAgentStatus(agent.id, 'idle');
 		}
 	}
 

@@ -76,6 +76,7 @@ export interface StreamObservationEvent {
 	type: 'observation';
 	result?: string;
 	error?: string;
+	toAgent?: string;
 }
 
 export interface StreamDoneEvent {
