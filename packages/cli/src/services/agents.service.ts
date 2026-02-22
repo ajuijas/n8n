@@ -23,8 +23,6 @@ import {
 	type WorkflowExecuteMode,
 } from 'n8n-workflow';
 
-import { hasGlobalScope } from '@n8n/permissions';
-
 import { ActiveExecutions } from '@/active-executions';
 import { validateExternalAgentUrl } from '@/agents/validate-agent-url';
 import { CredentialsHelper } from '@/credentials-helper';
@@ -32,6 +30,7 @@ import { CredentialsService } from '@/credentials/credentials.service';
 import { ForbiddenError } from '@/errors/response-errors/forbidden.error';
 import { NotFoundError } from '@/errors/response-errors/not-found.error';
 import { Push } from '@/push';
+import { PublicApiKeyService } from '@/services/public-api-key.service';
 import { WorkflowRunner } from '@/workflow-runner';
 import * as WorkflowExecuteAdditionalData from '@/workflow-execute-additional-data';
 import { WorkflowFinderService } from '@/workflows/workflow-finder.service';
@@ -90,6 +89,7 @@ export interface AgentDto {
 	avatar: string | null;
 	description: string | null;
 	agentAccessLevel: string | null;
+	apiKey?: string;
 }
 
 export interface AgentTaskResult {
@@ -122,6 +122,7 @@ export class AgentsService {
 		private readonly workflowRunner: WorkflowRunner,
 		private readonly activeExecutions: ActiveExecutions,
 		private readonly push: Push,
+		private readonly publicApiKeyService: PublicApiKeyService,
 	) {}
 
 	private broadcastAgentEvent(agentId: string, event: Record<string, unknown>) {
@@ -166,7 +167,15 @@ export class AgentsService {
 			await this.userRepository.save(user);
 		}
 
-		return toAgentDto(user);
+		const apiKeyRecord = await this.publicApiKeyService.createPublicApiKeyForUser(user, {
+			label: `${payload.firstName} A2A Key`,
+			expiresAt: null,
+			scopes: ['agent:read', 'agent:receive', 'agent:execute'],
+		});
+
+		const dto = toAgentDto(user);
+		dto.apiKey = apiKeyRecord.apiKey;
+		return dto;
 	}
 
 	async updateAgent(
@@ -308,7 +317,7 @@ export class AgentsService {
 		}
 
 		if (agentUser.agentAccessLevel === 'closed') {
-			if (hasGlobalScope(caller, ['chatHubAgent:execute'])) return;
+			if (caller.role.slug === 'global:owner' || caller.role.slug === 'global:admin') return;
 			if (await this.sharesProject(caller.id, agentId)) return;
 			throw new NotFoundError(`Agent ${agentId} not found`);
 		}
@@ -319,7 +328,7 @@ export class AgentsService {
 		}
 
 		// Internal agents: admin or project membership
-		if (hasGlobalScope(caller, ['chatHubAgent:execute'])) return;
+		if (caller.role.slug === 'global:owner' || caller.role.slug === 'global:admin') return;
 		if (await this.sharesProject(caller.id, agentId)) return;
 		throw new ForbiddenError('You do not have access to this agent.');
 	}

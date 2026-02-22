@@ -24,6 +24,7 @@ import type { ICredentialsOverwrite } from '@/interfaces';
 import { LoadNodesAndCredentials } from '@/load-nodes-and-credentials';
 import { handleMfaDisable, isMfaFeatureEnabled } from '@/mfa/helpers';
 import { PostHogClient } from '@/posthog';
+import { createA2ARouter } from '@/agents/a2a-router';
 import { isApiEnabled, loadPublicApiVersions } from '@/public-api';
 import { Push } from '@/push';
 import * as ResponseHelper from '@/response-helper';
@@ -174,6 +175,9 @@ export class Server extends AbstractServer {
 				(await frontendService.getSettings()).publicApi.latestVersion = apiLatestVersion;
 			}
 		}
+
+		// A2A protocol endpoints (discovery + task dispatch)
+		this.app.use(createA2ARouter());
 
 		// Extract BrowserId from headers
 		this.app.use((req: APIRequest, _, next) => {
@@ -406,6 +410,9 @@ export class Server extends AbstractServer {
 				'assets',
 				'static',
 				'types',
+				'\\.well-known',
+				'message:send',
+				'message:stream',
 				this.endpointHealth,
 				'metrics',
 				'e2e',

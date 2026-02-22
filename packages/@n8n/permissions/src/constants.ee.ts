@@ -53,7 +53,7 @@ export const RESOURCES = {
 	mcp: ['manage', 'oauth'] as const,
 	mcpApiKey: ['create', 'rotate'] as const,
 	chatHub: ['manage', 'message'] as const,
-	chatHubAgent: ['execute', ...DEFAULT_OPERATIONS] as const,
+	chatHubAgent: [...DEFAULT_OPERATIONS] as const,
 	breakingChanges: ['list'] as const,
 	apiKey: ['manage'] as const,
 	credentialResolver: [...DEFAULT_OPERATIONS] as const,
@@ -73,7 +73,7 @@ export const API_KEY_RESOURCES = {
 	executionTags: ['update', 'list'] as const,
 	dataTable: ['create', 'read', 'update', 'delete', 'list'] as const,
 	dataTableRow: ['create', 'read', 'update', 'delete', 'upsert'] as const,
-	agent: ['read', 'execute'] as const,
+	agent: ['read', 'execute', 'receive'] as const,
 } as const;
 
 export const PROJECT_OWNER_ROLE_SLUG = 'project:personalOwner';
