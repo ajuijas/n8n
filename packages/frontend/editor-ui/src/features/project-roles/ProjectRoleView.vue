@@ -112,9 +112,10 @@ function resetForm(payload: Role | undefined) {
 		: defaultForm();
 }
 
+const SECRETS_SCOPE_TYPES = new Set(['externalSecretsProvider', 'externalSecret']);
 const scopeTypes = computed(() => {
 	if (!envFeatureFlag.check.value('EXTERNAL_SECRETS_FOR_PROJECTS')) {
-		return SCOPE_TYPES.filter((type) => type !== 'externalSecretsProvider');
+		return SCOPE_TYPES.filter((type) => !SECRETS_SCOPE_TYPES.has(type));
 	}
 	return SCOPE_TYPES;
 });
@@ -139,10 +140,6 @@ function toggleScope(scope: string) {
 
 	if (scope === 'workflow:update') {
 		toggleScope('workflow:execute');
-	}
-
-	if (scope === 'externalSecretsProvider:read') {
-		toggleScope('externalSecret:list');
 	}
 }
 
