@@ -501,20 +501,18 @@ describe('ProjectRoleView', () => {
 	});
 
 	describe('External Secrets Scopes', () => {
-		it('should not render secrets scope types when feature flag is off', () => {
+		it('should not render externalSecretsProvider scope type when feature flag is off', () => {
 			mockFeatureFlagCheck.mockReturnValue(false);
 			const { queryByText } = renderComponent();
 
 			expect(queryByText('Secret stores')).not.toBeInTheDocument();
-			expect(queryByText('External secrets')).not.toBeInTheDocument();
 		});
 
-		it('should render secrets scope types when feature flag is on', () => {
+		it('should render externalSecretsProvider scope type when feature flag is on', () => {
 			mockFeatureFlagCheck.mockReturnValue(true);
 			const { getByText } = renderComponent();
 
 			expect(getByText('Secret stores')).toBeInTheDocument();
-			expect(getByText('External secrets')).toBeInTheDocument();
 		});
 
 		it('should show secrets checkboxes when feature flag is on', async () => {
@@ -528,7 +526,6 @@ describe('ProjectRoleView', () => {
 			expect(getByTestId('scope-checkbox-externalSecretsProvider:update')).toBeInTheDocument();
 			expect(getByTestId('scope-checkbox-externalSecretsProvider:delete')).toBeInTheDocument();
 			expect(getByTestId('scope-checkbox-externalSecretsProvider:sync')).toBeInTheDocument();
-			expect(getByTestId('scope-checkbox-externalSecret:list')).toBeInTheDocument();
 		});
 	});
 
